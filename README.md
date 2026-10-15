@@ -4,7 +4,8 @@ A single-page dashboard showing weekly sales against target for the Jurong, Orch
 and Tampines outlets. It reads the `Combined` tab of a Google Sheet through the Google
 Sheets API v4 and renders everything in the browser.
 
-One file, no framework, no build step. `index.html` is the whole app.
+No framework and no build step. `index.html` is the whole app; `middleware.js` puts a
+username and password in front of it.
 
 ## What it shows
 
@@ -55,9 +56,48 @@ a key behind, so the key ends up in the page source either way. Two ways to hand
 3. Deploy.
 
 Vercel serves `index.html` at the root. Every push to `main` redeploys automatically.
+Vercel installs `@vercel/functions` for the middleware, but there is still no build
+command to configure.
 
 Once you know the domain, go back to the API key in Google Cloud Console and add that
 domain under **Application restrictions → Websites**, or the key will be refused.
+
+## Password protection
+
+`middleware.js` sits in front of every request and asks for a username and password
+using HTTP Basic Auth, so the browser shows its own sign-in prompt before the dashboard
+loads. It runs on Vercel's Routing Middleware, on the Node.js runtime.
+
+Set both of these in **Project → Settings → Environment Variables**, for every
+environment you want protected (Production, Preview, Development), then redeploy:
+
+| Variable | Value |
+| --- | --- |
+| `DASHBOARD_USER` | The username people type at the prompt. |
+| `DASHBOARD_PASSWORD` | The password. |
+
+Until both are set, every request gets a 503 saying the dashboard isn't configured. It
+fails closed on purpose, so a missing variable can never leave the dashboard public.
+
+Check it from a terminal once deployed. The first should be `401`, the second `200`:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://YOUR-DOMAIN.vercel.app/
+curl -s -o /dev/null -w '%{http_code}\n' -u 'USER:PASSWORD' https://YOUR-DOMAIN.vercel.app/
+```
+
+Worth knowing about Basic Auth:
+
+- Credentials are base64 encoded, not encrypted. That is fine here because Vercel serves
+  everything over HTTPS, but never put this behind a plain `http://` origin.
+- There is one shared username and password, so there is no per-person access or audit
+  trail. For that you would want Vercel's own authentication or an SSO provider.
+- Browsers hold on to the credentials for the rest of the session and offer no sign-out.
+  Closing the browser clears them. Changing the password in Vercel and redeploying
+  forces everyone to re-enter it.
+- The password check compares SHA-256 digests rather than the raw strings, so the
+  comparison takes the same time whether the password is wrong at the first character
+  or the last.
 
 ## Configuration
 
@@ -101,5 +141,16 @@ text under "Couldn't load the sales data" or in the red banner. The common ones:
 | File | Purpose |
 | --- | --- |
 | `index.html` | The whole dashboard. |
+| `middleware.js` | HTTP Basic Auth in front of every request. |
+| `package.json` | Declares `@vercel/functions`, which the middleware imports, and sets `"type": "module"`. Vercel requires one or the other for a project with no framework. |
+| `package-lock.json` | Pins the dependency version so deploys are reproducible. |
 | `vercel.json` | Stops the HTML being cached, so a redeploy shows up immediately. |
-| `.gitignore` | Keeps `.vercel` and local env files out of the repo. |
+| `.gitignore` | Keeps `node_modules`, `.vercel` and local env files out of the repo. |
+
+## If the password prompt never appears
+
+| Symptom | Likely cause |
+| --- | --- |
+| The dashboard loads with no prompt | The middleware didn't deploy. Check the deployment's build log for `middleware.js`, and that `package.json` is in the repo root next to it. |
+| Every request returns 503 | `DASHBOARD_USER` or `DASHBOARD_PASSWORD` is missing for that environment. Set both and redeploy. |
+| The prompt reappears after a correct password | A trailing space in the environment variable value is the usual culprit. |

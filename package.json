@@ -1,0 +1,10 @@
+{
+  "name": "outlet-performance-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Weekly outlet sales dashboard, served as a static page behind HTTP Basic Auth.",
+  "dependencies": {
+    "@vercel/functions": "^3.10.1"
+  }
+}
